@@ -1506,6 +1506,54 @@ namespace Nop.Services.Catalog
         }
 
         /// <summary>
+        /// Balance the given quantity in the warehouses.
+        /// </summary>
+        /// <param name="product">Product</param>
+        /// <param name="warehouseId">Warehouse identifier</param>
+        /// <param name="quantity">Quantity</param>
+        public virtual void BalanceInventory(Product product, int warehouseId, int quantity)
+        {
+            if (product == null)
+                throw new ArgumentNullException(nameof(product));
+
+            var productInventory = product.ProductWarehouseInventory
+                .Where(pwi => pwi.WarehouseId == warehouseId)
+                .ToList()
+                .FirstOrDefault();
+
+            if (productInventory == null)
+                return;
+
+            var selectQty = Math.Min(productInventory.StockQuantity - productInventory.ReservedQuantity, quantity);
+            productInventory.ReservedQuantity += selectQty;
+
+            //remove from reserve in other warehouses what has just been reserved in the current warehouse to equalize the total
+            var productAnotherInventories = product.ProductWarehouseInventory
+                .Where(pwi => pwi.WarehouseId != warehouseId)
+                .OrderByDescending(ob => ob.ReservedQuantity)
+                .ToList();
+
+            var qty = selectQty;
+            foreach (var productAnotherInventory in productAnotherInventories)
+            {
+                if (qty > 0)
+                {
+                    if (productAnotherInventory.ReservedQuantity >= qty)
+                    {
+                        productAnotherInventory.ReservedQuantity -= qty;
+                    }
+                    else
+                    {
+                        qty = selectQty - productAnotherInventory.ReservedQuantity;
+                        productAnotherInventory.ReservedQuantity = 0;
+                    }
+                }
+            }
+                                                  
+            UpdateProduct(product);
+        }
+
+        /// <summary>
         /// Unblocks the given quantity reserved items in the warehouses
         /// </summary>
         /// <param name="product">Product</param>
